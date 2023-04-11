@@ -1,4 +1,43 @@
+# gcloud builds submit --config=cloudbuild.yaml .
 steps:
-- name: 'gcr.io/k8s-skaffold/pack'
-  entrypoint: 'pack'
-  args: ['build', '--builder=gcr.io/buildpacks/builder', '--publish', 'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/hello-world:v1']
+- id: 'Run dbt'
+  name: 'ghcr.io/dbt-labs/dbt-bigquery:${_DBT_VERSION}'
+  entrypoint: 'bash'
+  env:
+    - 'DBT_PROJECT_ID=${_DBT_PROJECT_ID}'
+    - 'DBT_LOCATION=${_DBT_LOCATION}'
+    - 'DBT_DATASET=${_DBT_DATASET}'
+    - 'DBT_TARGET=${_DBT_TARGET}'
+  args:
+    - '-c'
+    - |
+       cd ${_DBT_DIRECTORY} && dbt deps --profiles-dir .
+       if [[ $? == 1 ]]; then
+        echo '1'
+        exit 1
+       fi
+       dbt debug --target ${_DBT_TARGET} --profiles-dir .
+       if [[ $? == 1 ]]; then
+        echo '1'
+        exit 1
+       fi
+       dbt run -m  tag:${_DBT_INPUT} --target ${_DBT_TARGET} --profiles-dir .
+       if [[ $? == 1 ]]; then
+        echo '1'
+        exit 1
+       fi
+       dbt test -m  tag:${_DBT_INPUT} --target ${_DBT_TARGET} --profiles-dir .
+       if [[ $? == 1 ]]; then
+        echo '1'
+        exit 1
+       fi
+timeout: 3600s
+tags: ['dbt']
+substitutions:
+  _DBT_VERSION: '1.0.0'
+  _DBT_TARGET: 'development'
+  _DBT_DIRECTORY: 'dbt_bigquery'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  
